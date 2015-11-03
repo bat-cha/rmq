@@ -337,6 +337,13 @@ below).
 There are some features and aspects not properly documented yet. I will quickly
 list those here, hopefully they will be expanded in the future. :wink:
 
+- Stop consuming: Use the `stopper` channel returned from `queue.AddConsumer`
+  to stop consuming on this consumer:
+    ```go
+    name, stopper := queue.AddConsumer("task consumer", taskConsumer)
+    stopper <- 1 // now taskConsumer.Consume() won't be called anymore
+    ```
+
 - Batch Consumers: Use `queue.AddBatchConsumer()` to register a consumer that
   receives batches of deliveries to be consumed at once (database bulk insert)
   See [`example/batch_consumer`][batch_consumer.go]
