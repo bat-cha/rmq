@@ -35,9 +35,8 @@ type Queue interface {
 	PublishBytes(payload []byte) bool
 	SetPushQueue(pushQueue Queue)
 	StartConsuming(prefetchLimit int, pollDuration time.Duration) bool
-	StopConsuming() <-chan struct{}
-	AddConsumer(tag string, consumer Consumer) string
-	AddConsumerFunc(tag string, consumerFunc ConsumerFunc) string
+	StopConsuming() bool
+	AddConsumer(tag string, consumer Consumer) (name string, stopper chan<- int)
 	AddBatchConsumer(tag string, batchSize int, consumer BatchConsumer) string
 	AddBatchConsumerWithTimeout(tag string, batchSize int, timeout time.Duration, consumer BatchConsumer) string
 	PurgeReady() int
@@ -237,13 +236,14 @@ func (queue *redisQueue) StopConsuming() <-chan struct{} {
 	return finishedChan
 }
 
-// AddConsumer adds a consumer to the queue and returns its internal name
+// AddConsumer adds a consumer to the queue
+// returns its internal name and a queue that can be used to stop consuming
 // panics if StartConsuming wasn't called before!
-func (queue *redisQueue) AddConsumer(tag string, consumer Consumer) string {
-	queue.stopWg.Add(1)
-	name := queue.addConsumer(tag)
-	go queue.consumerConsume(consumer)
-	return name
+func (queue *redisQueue) AddConsumer(tag string, consumer Consumer) (name string, stopper chan<- int) {
+	name = queue.addConsumer(tag)
+	stopChan := make(chan int, 1)
+	go queue.consumerConsume(consumer, stopChan)
+	return name, stopChan
 }
 
 func (queue *redisQueue) AddConsumerFunc(tag string, consumerFunc ConsumerFunc) string {
@@ -343,10 +343,16 @@ func (queue *redisQueue) consumeBatch(batchSize int) bool {
 	return true
 }
 
-func (queue *redisQueue) consumerConsume(consumer Consumer) {
-	for delivery := range queue.deliveryChan {
-		// debug(fmt.Sprintf("consumer consume %s %s", delivery, consumer)) // COMMENTOUT
-		consumer.Consume(delivery)
+func (queue *redisQueue) consumerConsume(consumer Consumer, stopper chan int) {
+	for {
+		select {
+		case delivery := <-queue.deliveryChan:
+			// debug(fmt.Sprintf("consumer consume %s %s", delivery, consumer)) // COMMENTOUT
+			consumer.Consume(delivery)
+		case <-stopper:
+			// debug(fmt.Sprintf("consumer stopped %s", consumer)) // COMMENTOUT
+			return
+		}
 	}
 	queue.stopWg.Done()
 }

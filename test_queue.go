@@ -37,8 +37,8 @@ func (queue *TestQueue) StopConsuming() <-chan struct{} {
 	return nil
 }
 
-func (queue *TestQueue) AddConsumer(tag string, consumer Consumer) string {
-	return ""
+func (queue *TestQueue) AddConsumer(tag string, consumer Consumer) (name string, stopper chan<- int) {
+	return "", nil
 }
 
 func (queue *TestQueue) AddConsumerFunc(tag string, consumerFunc ConsumerFunc) string {
