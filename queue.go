@@ -41,6 +41,9 @@ type Queue interface {
 	AddBatchConsumerWithTimeout(tag string, batchSize int, timeout time.Duration, consumer BatchConsumer) string
 	PurgeReady() int
 	PurgeRejected() int
+	AddLimitedConsumer(tag string, consumer Consumer, limit int) (name string, stopper chan<- int)
+	PurgeReady() bool
+	PurgeRejected() bool
 	ReturnRejected(count int) int
 	ReturnAllRejected() int
 	Close() bool
@@ -242,7 +245,7 @@ func (queue *redisQueue) StopConsuming() <-chan struct{} {
 func (queue *redisQueue) AddConsumer(tag string, consumer Consumer) (name string, stopper chan<- int) {
 	name = queue.addConsumer(tag)
 	stopChan := make(chan int, 1)
-	go queue.consumerConsume(consumer, stopChan)
+	go queue.consumerConsume(consumer, name, stopChan)
 	return name, stopChan
 }
 
@@ -262,6 +265,14 @@ func (queue *redisQueue) AddBatchConsumerWithTimeout(tag string, batchSize int, 
 	name := queue.addConsumer(tag)
 	go queue.consumerBatchConsume(batchSize, timeout, consumer)
 	return name
+}
+
+// AddLimitedConsumer is similar to AddConsumer, but for consuming a limited number of deliveries
+func (queue *redisQueue) AddLimitedConsumer(tag string, consumer Consumer, limit int) (name string, stopper chan<- int) {
+	name = queue.addConsumer(tag)
+	stopChan := make(chan int, 1)
+	go queue.consumerLimitedConsume(consumer, name, stopChan, limit)
+	return name, stopChan
 }
 
 func (queue *redisQueue) GetConsumers() []string {
@@ -343,7 +354,9 @@ func (queue *redisQueue) consumeBatch(batchSize int) bool {
 	return true
 }
 
-func (queue *redisQueue) consumerConsume(consumer Consumer, stopper chan int) {
+func (queue *redisQueue) consumerConsume(consumer Consumer, name string, stopper chan int) {
+	defer queue.RemoveConsumer(name)
+
 	for {
 		select {
 		case delivery := <-queue.deliveryChan:
@@ -421,11 +434,42 @@ func (queue *redisQueue) deleteRedisList(key string) int {
 
 		// remove one batch
 		queue.redisClient.LTrim(key, 0, -1-batchSize)
-	}
+
 
 	return total
 }
 
 func debug(message string) {
 	// log.Printf("rmq debug: %s", message) // COMMENTOUT
+}
+
+func (queue *redisQueue) consumerLimitedConsume(consumer Consumer, name string, stopper chan int, limit int) {
+	defer queue.RemoveConsumer(name)
+
+	for {
+		select {
+		case delivery := <-queue.deliveryChan:
+			// debug(fmt.Sprintf("consumer consume %s %s", delivery, consumer)) // COMMENTOUT
+			consumer.Consume(delivery)
+			if limit--; limit <= 0 {
+				return
+			}
+		case <-stopper:
+			// debug(fmt.Sprintf("consumer stopped %s", consumer)) // COMMENTOUT
+			return
+		}
+	}
+}
+
+// redisErrIsNil returns false if there is no error, true if the result error is nil and panics if there's another error
+func redisErrIsNil(result redis.Cmder) bool {
+	switch result.Err() {
+	case nil:
+		return false
+	case redis.Nil:
+		return true
+	default:
+		log.Panicf("rmq redis error is not nil %s", result.Err())
+		return false
+	}
 }
