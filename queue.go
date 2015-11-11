@@ -461,6 +461,24 @@ func (queue *redisQueue) consumerLimitedConsume(consumer Consumer, name string, 
 	}
 }
 
+func (queue *redisQueue) consumerLimitedConsume(consumer Consumer, name string, stopper chan int, limit int) {
+	defer queue.RemoveConsumer(name)
+
+	for {
+		select {
+		case delivery := <-queue.deliveryChan:
+			// debug(fmt.Sprintf("consumer consume %s %s", delivery, consumer)) // COMMENTOUT
+			consumer.Consume(delivery)
+			if limit--; limit <= 0 {
+				return
+			}
+		case <-stopper:
+			// debug(fmt.Sprintf("consumer stopped %s", consumer)) // COMMENTOUT
+			return
+		}
+	}
+}
+
 // redisErrIsNil returns false if there is no error, true if the result error is nil and panics if there's another error
 func redisErrIsNil(result redis.Cmder) bool {
 	switch result.Err() {
