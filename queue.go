@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/adjust/uniuri"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -35,7 +36,7 @@ type Queue interface {
 	PublishBytes(payload []byte) bool
 	SetPushQueue(pushQueue Queue)
 	StartConsuming(prefetchLimit int, pollDuration time.Duration) bool
-	StopConsuming() bool
+	StopConsuming() <-chan struct{}
 	AddConsumer(tag string, consumer Consumer) (name string, stopper chan<- int)
 	AddBatchConsumer(tag string, batchSize int, consumer BatchConsumer) string
 	AddBatchConsumerWithTimeout(tag string, batchSize int, timeout time.Duration, consumer BatchConsumer) string
@@ -247,7 +248,7 @@ func (queue *redisQueue) AddConsumer(tag string, consumer Consumer) (name string
 	return name, stopChan
 }
 
-func (queue *redisQueue) AddConsumerFunc(tag string, consumerFunc ConsumerFunc) string {
+func (queue *redisQueue) AddConsumerFunc(tag string, consumerFunc ConsumerFunc) (name string, stopper chan<- int) {
 	return queue.AddConsumer(tag, consumerFunc)
 }
 
@@ -432,31 +433,13 @@ func (queue *redisQueue) deleteRedisList(key string) int {
 
 		// remove one batch
 		queue.redisClient.LTrim(key, 0, -1-batchSize)
-
+	}
 
 	return total
 }
 
 func debug(message string) {
 	// log.Printf("rmq debug: %s", message) // COMMENTOUT
-}
-
-func (queue *redisQueue) consumerLimitedConsume(consumer Consumer, name string, stopper chan int, limit int) {
-	defer queue.RemoveConsumer(name)
-
-	for {
-		select {
-		case delivery := <-queue.deliveryChan:
-			// debug(fmt.Sprintf("consumer consume %s %s", delivery, consumer)) // COMMENTOUT
-			consumer.Consume(delivery)
-			if limit--; limit <= 0 {
-				return
-			}
-		case <-stopper:
-			// debug(fmt.Sprintf("consumer stopped %s", consumer)) // COMMENTOUT
-			return
-		}
-	}
 }
 
 func (queue *redisQueue) consumerLimitedConsume(consumer Consumer, name string, stopper chan int, limit int) {
