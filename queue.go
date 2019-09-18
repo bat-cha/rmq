@@ -42,8 +42,6 @@ type Queue interface {
 	PurgeReady() int
 	PurgeRejected() int
 	AddLimitedConsumer(tag string, consumer Consumer, limit int) (name string, stopper chan<- int)
-	PurgeReady() bool
-	PurgeRejected() bool
 	ReturnRejected(count int) int
 	ReturnAllRejected() int
 	Close() bool

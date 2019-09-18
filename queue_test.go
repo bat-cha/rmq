@@ -348,13 +348,6 @@ func (suite *QueueSuite) TestLimited(c *C) {
 	time.Sleep(2 * time.Millisecond)
 	c.Check(consumer.LastDeliveries, HasLen, 1)
 	c.Check(consumer.LastDelivery.Payload(), Equals, "limited-d1")
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-
->>>>>>> Added queue.AddLimitedConsumer
-=======
->>>>>>> Removed extra space
 }
 
 func (suite *QueueSuite) TestReturnRejected(c *C) {
